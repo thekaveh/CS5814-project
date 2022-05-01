@@ -1,0 +1,247 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import os\n",
+    "import glob\n",
+    "import shutil\n",
+    "import zipfile\n",
+    "import subprocess\n",
+    "import pandas as pd"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "LANG = \"python\"\n",
+    "MODEL_TYPE = \"roberta\"\n",
+    "PRE_TRAINED_MODEL_NAME = \"microsoft/codebert-base\"\n",
+    "\n",
+    "N_ITERS = 3\n",
+    "N_EPOCHS = 1\n",
+    "LEARNING_RATE = 5e-5\n",
+    "\n",
+    "BEAM_SIZE = 10\n",
+    "MAX_SOURCE_LEN = 256\n",
+    "MAX_TARGET_LEN = 128\n",
+    "\n",
+    "BATCH_SIZE_EVAL = 50\n",
+    "BATCH_SIZE_TRAIN = 10\n",
+    "\n",
+    "MINI_DATASET_SIZE = 50"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "root_path = os.path.abspath(os.curdir)\n",
+    "repo_path = os.path.join(root_path, \"repos\", \"CodeXGLUE\")\n",
+    "task_path = os.path.join(repo_path, \"Code-Text\", \"code-to-text\")\n",
+    "\n",
+    "code_path = os.path.join(task_path, \"code\")\n",
+    "model_path = os.path.join(task_path, \"model\")\n",
+    "dataset_path = os.path.join(task_path, \"dataset\")\n",
+    "evaluator_path = os.path.join(task_path, \"evaluator\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "if not os.path.exists(repo_path):\n",
+    "    os.makedirs(repo_path, exist_ok=True)\n",
+    "    \n",
+    "    subprocess.check_call(\n",
+    "        [\n",
+    "            \"git\"\n",
+    "            , \"clone\"\n",
+    "            , \"https://github.com/microsoft/CodeXGLUE\"\n",
+    "            , repo_path\n",
+    "        ]\n",
+    "    )"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "if not os.path.exists(dataset_path):\n",
+    "    with zipfile.ZipFile(os.path.join(task_path, \"dataset.zip\"), 'r') as dataset_zip_file:\n",
+    "        dataset_zip_file.extractall(task_path)\n",
+    "\n",
+    "    for lang in [\"python\", \"java\", \"ruby\", \"javascript\", \"go\", \"php\"]:\n",
+    "        subprocess.check_call(\n",
+    "            [\n",
+    "                \"wget\"\n",
+    "                , \"https://s3.amazonaws.com/code-search-net/CodeSearchNet/v2/{lang}.zip\".format(lang=lang)\n",
+    "                , \"-P\"\n",
+    "                , dataset_path\n",
+    "            ]\n",
+    "        )\n",
+    "\n",
+    "        with zipfile.ZipFile(os.path.join(dataset_path, \"{lang}.zip\".format(lang=lang)), 'r') as lang_zip_file:\n",
+    "            lang_zip_file.extractall(dataset_path)\n",
+    "    \n",
+    "    os.chdir(dataset_path)\n",
+    "    subprocess.check_call(\n",
+    "        [\n",
+    "            \"python\"\n",
+    "            , os.path.join(dataset_path, \"preprocess.py\")\n",
+    "        ]\n",
+    "    )\n",
+    "    os.chdir(root_path)\n",
+    "\n",
+    "    [os.remove(f) for f in glob.glob(os.path.join(dataset_path, \"*.zip\"))]\n",
+    "    [os.remove(f) for f in glob.glob(os.path.join(dataset_path, \"*.pkl\"))]\n",
+    "    [shutil.rmtree(dir, ignore_errors=True) for dir in glob.glob(os.path.join(dataset_path, \"*/final\"))]\n",
+    "\n",
+    "    for lang in [\"python\", \"java\"]:\n",
+    "        with open(os.path.join(dataset_path, lang, \"train.jsonl\"), mode=\"r\") as train_f:\n",
+    "            with open(os.path.join(dataset_path, lang, \"train-mini.jsonl\"), mode=\"a\") as train_mini_f:\n",
+    "                for i in range(MINI_DATASET_SIZE):\n",
+    "                    train_mini_f.write(next(train_f))\n",
+    "\n",
+    "    for lang in [\"python\", \"java\"]:\n",
+    "        with open(os.path.join(dataset_path, lang, \"valid.jsonl\"), mode=\"r\") as train_f:\n",
+    "            with open(os.path.join(dataset_path, lang, \"valid-mini.jsonl\"), mode=\"a\") as train_mini_f:\n",
+    "                for i in range(MINI_DATASET_SIZE):\n",
+    "                    train_mini_f.write(next(train_f))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# os.chdir(evaluator_path)\n",
+    "# subprocess.check_call(\n",
+    "#     [\n",
+    "#         \"python\"\n",
+    "#         , os.path.join(evaluator_path, \"evaluator.py\")\n",
+    "#         , os.path.join(evaluator_path, \"reference.txt\")\n",
+    "#         , \"<\"\n",
+    "#         , os.path.join(evaluator_path, \"predictions.txt\")\n",
+    "#     ]\n",
+    "# )\n",
+    "# os.chdir(root_path)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "usage: run.py [-h] --model_type MODEL_TYPE --model_name_or_path\n",
+      "              MODEL_NAME_OR_PATH --output_dir OUTPUT_DIR\n",
+      "              [--load_model_path LOAD_MODEL_PATH]\n",
+      "              [--train_filename TRAIN_FILENAME] [--dev_filename DEV_FILENAME]\n",
+      "              [--test_filename TEST_FILENAME] [--config_name CONFIG_NAME]\n",
+      "              [--tokenizer_name TOKENIZER_NAME]\n",
+      "              [--max_source_length MAX_SOURCE_LENGTH]\n",
+      "              [--max_target_length MAX_TARGET_LENGTH] [--do_train] [--do_eval]\n",
+      "              [--do_test] [--do_lower_case] [--no_cuda]\n",
+      "              [--train_batch_size TRAIN_BATCH_SIZE]\n",
+      "              [--eval_batch_size EVAL_BATCH_SIZE]\n",
+      "              [--gradient_accumulation_steps GRADIENT_ACCUMULATION_STEPS]\n",
+      "              [--learning_rate LEARNING_RATE] [--beam_size BEAM_SIZE]\n",
+      "              [--weight_decay WEIGHT_DECAY] [--adam_epsilon ADAM_EPSILON]\n",
+      "              [--max_grad_norm MAX_GRAD_NORM]\n",
+      "              [--num_train_epochs NUM_TRAIN_EPOCHS] [--max_steps MAX_STEPS]\n",
+      "              [--eval_steps EVAL_STEPS] [--train_steps TRAIN_STEPS]\n",
+      "              [--warmup_steps WARMUP_STEPS] [--local_rank LOCAL_RANK]\n",
+      "              [--seed SEED]\n",
+      "run.py: error: unrecognized arguments: False\n"
+     ]
+    },
+    {
+     "ename": "CalledProcessError",
+     "evalue": "Command '['python', 'run.py', '--no_cuda', 'False', '--model_type', 'roberta', '--model_name_or_path', 'microsoft/codebert-base', '--output_dir', '/Users/kaveh/repos/CS5814-project/repos/CodeXGLUE/Code-Text/code-to-text/model/python', '--num_train_epochs', '1', '--learning_rate', '5e-05', '--beam_size', '10', '--max_source_length', '256', '--max_target_length', '128', '--do_train', '--train_batch_size', '4', '--train_filename', '/Users/kaveh/repos/CS5814-project/repos/CodeXGLUE/Code-Text/code-to-text/dataset/python/train-mini.jsonl', '--do_eval', '--eval_batch_size', '256', '--dev_filename', '/Users/kaveh/repos/CS5814-project/repos/CodeXGLUE/Code-Text/code-to-text/dataset/python/valid-mini.jsonl']' returned non-zero exit status 2.",
+     "output_type": "error",
+     "traceback": [
+      "\u001b[0;31m---------------------------------------------------------------------------\u001b[0m",
+      "\u001b[0;31mCalledProcessError\u001b[0m                        Traceback (most recent call last)",
+      "\u001b[1;32m/Users/kaveh/repos/CS5814-project/dataset=codexglue-task=summarization-model_type=roberta-pretrained_model=codebert-lang=python.ipynb Cell 7'\u001b[0m in \u001b[0;36m<cell line: 3>\u001b[0;34m()\u001b[0m\n\u001b[1;32m      <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=0'>1</a>\u001b[0m os\u001b[39m.\u001b[39mchdir(code_path)\n\u001b[0;32m----> <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=2'>3</a>\u001b[0m subprocess\u001b[39m.\u001b[39;49mcheck_call(\n\u001b[1;32m      <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=3'>4</a>\u001b[0m     [\n\u001b[1;32m      <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=4'>5</a>\u001b[0m         \u001b[39m\"\u001b[39;49m\u001b[39mpython\u001b[39;49m\u001b[39m\"\u001b[39;49m\n\u001b[1;32m      <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=5'>6</a>\u001b[0m         \n\u001b[1;32m      <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=6'>7</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39mrun.py\u001b[39;49m\u001b[39m\"\u001b[39;49m\n\u001b[1;32m      <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=7'>8</a>\u001b[0m \n\u001b[1;32m      <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=8'>9</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--no_cuda\u001b[39;49m\u001b[39m\"\u001b[39;49m, \u001b[39mstr\u001b[39;49m(\u001b[39mFalse\u001b[39;49;00m)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=9'>10</a>\u001b[0m         \n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=10'>11</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--model_type\u001b[39;49m\u001b[39m\"\u001b[39;49m, MODEL_TYPE\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=11'>12</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--model_name_or_path\u001b[39;49m\u001b[39m\"\u001b[39;49m, PRE_TRAINED_MODEL_NAME\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=12'>13</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--output_dir\u001b[39;49m\u001b[39m\"\u001b[39;49m, os\u001b[39m.\u001b[39;49mpath\u001b[39m.\u001b[39;49mjoin(model_path, LANG)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=13'>14</a>\u001b[0m         \n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=14'>15</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--num_train_epochs\u001b[39;49m\u001b[39m\"\u001b[39;49m, \u001b[39mstr\u001b[39;49m(N_EPOCHS)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=15'>16</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--learning_rate\u001b[39;49m\u001b[39m\"\u001b[39;49m, \u001b[39mstr\u001b[39;49m(LEARNING_RATE)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=16'>17</a>\u001b[0m \n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=17'>18</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--beam_size\u001b[39;49m\u001b[39m\"\u001b[39;49m, \u001b[39mstr\u001b[39;49m(BEAM_SIZE)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=18'>19</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--max_source_length\u001b[39;49m\u001b[39m\"\u001b[39;49m, \u001b[39mstr\u001b[39;49m(MAX_SOURCE_LEN)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=19'>20</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--max_target_length\u001b[39;49m\u001b[39m\"\u001b[39;49m, \u001b[39mstr\u001b[39;49m(MAX_TARGET_LEN)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=20'>21</a>\u001b[0m \n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=21'>22</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--do_train\u001b[39;49m\u001b[39m\"\u001b[39;49m\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=22'>23</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--train_batch_size\u001b[39;49m\u001b[39m\"\u001b[39;49m, \u001b[39mstr\u001b[39;49m(BATCH_SIZE_TRAIN)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=23'>24</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--train_filename\u001b[39;49m\u001b[39m\"\u001b[39;49m, os\u001b[39m.\u001b[39;49mpath\u001b[39m.\u001b[39;49mjoin(dataset_path, LANG, \u001b[39m\"\u001b[39;49m\u001b[39mtrain-mini.jsonl\u001b[39;49m\u001b[39m\"\u001b[39;49m)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=24'>25</a>\u001b[0m \n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=25'>26</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--do_eval\u001b[39;49m\u001b[39m\"\u001b[39;49m\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=26'>27</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--eval_batch_size\u001b[39;49m\u001b[39m\"\u001b[39;49m, \u001b[39mstr\u001b[39;49m(BATCH_SIZE_EVAL)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=27'>28</a>\u001b[0m         , \u001b[39m\"\u001b[39;49m\u001b[39m--dev_filename\u001b[39;49m\u001b[39m\"\u001b[39;49m, os\u001b[39m.\u001b[39;49mpath\u001b[39m.\u001b[39;49mjoin(dataset_path, LANG, \u001b[39m\"\u001b[39;49m\u001b[39mvalid-mini.jsonl\u001b[39;49m\u001b[39m\"\u001b[39;49m)\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=28'>29</a>\u001b[0m     ]\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=29'>30</a>\u001b[0m )\n\u001b[1;32m     <a href='vscode-notebook-cell:/Users/kaveh/repos/CS5814-project/dataset%3Dcodexglue-task%3Dsummarization-model_type%3Droberta-pretrained_model%3Dcodebert-lang%3Dpython.ipynb#ch0000006?line=31'>32</a>\u001b[0m os\u001b[39m.\u001b[39mchdir(root_path)\n",
+      "File \u001b[0;32m~/dev/miniforge3/envs/ml/lib/python3.8/subprocess.py:364\u001b[0m, in \u001b[0;36mcheck_call\u001b[0;34m(*popenargs, **kwargs)\u001b[0m\n\u001b[1;32m    <a href='file:///Users/kaveh/dev/miniforge3/envs/ml/lib/python3.8/subprocess.py?line=361'>362</a>\u001b[0m     \u001b[39mif\u001b[39;00m cmd \u001b[39mis\u001b[39;00m \u001b[39mNone\u001b[39;00m:\n\u001b[1;32m    <a href='file:///Users/kaveh/dev/miniforge3/envs/ml/lib/python3.8/subprocess.py?line=362'>363</a>\u001b[0m         cmd \u001b[39m=\u001b[39m popenargs[\u001b[39m0\u001b[39m]\n\u001b[0;32m--> <a href='file:///Users/kaveh/dev/miniforge3/envs/ml/lib/python3.8/subprocess.py?line=363'>364</a>\u001b[0m     \u001b[39mraise\u001b[39;00m CalledProcessError(retcode, cmd)\n\u001b[1;32m    <a href='file:///Users/kaveh/dev/miniforge3/envs/ml/lib/python3.8/subprocess.py?line=364'>365</a>\u001b[0m \u001b[39mreturn\u001b[39;00m \u001b[39m0\u001b[39m\n",
+      "\u001b[0;31mCalledProcessError\u001b[0m: Command '['python', 'run.py', '--no_cuda', 'False', '--model_type', 'roberta', '--model_name_or_path', 'microsoft/codebert-base', '--output_dir', '/Users/kaveh/repos/CS5814-project/repos/CodeXGLUE/Code-Text/code-to-text/model/python', '--num_train_epochs', '1', '--learning_rate', '5e-05', '--beam_size', '10', '--max_source_length', '256', '--max_target_length', '128', '--do_train', '--train_batch_size', '4', '--train_filename', '/Users/kaveh/repos/CS5814-project/repos/CodeXGLUE/Code-Text/code-to-text/dataset/python/train-mini.jsonl', '--do_eval', '--eval_batch_size', '256', '--dev_filename', '/Users/kaveh/repos/CS5814-project/repos/CodeXGLUE/Code-Text/code-to-text/dataset/python/valid-mini.jsonl']' returned non-zero exit status 2."
+     ]
+    }
+   ],
+   "source": [
+    "os.chdir(code_path)\n",
+    "\n",
+    "subprocess.check_call(\n",
+    "    [\n",
+    "        \"python\"\n",
+    "        \n",
+    "        , \"run.py\"\n",
+    "        \n",
+    "        , \"--model_type\", MODEL_TYPE\n",
+    "        , \"--model_name_or_path\", PRE_TRAINED_MODEL_NAME\n",
+    "        , \"--output_dir\", os.path.join(model_path, LANG)\n",
+    "        \n",
+    "        , \"--num_train_epochs\", str(N_EPOCHS)\n",
+    "        , \"--learning_rate\", str(LEARNING_RATE)\n",
+    "\n",
+    "        , \"--beam_size\", str(BEAM_SIZE)\n",
+    "        , \"--max_source_length\", str(MAX_SOURCE_LEN)\n",
+    "        , \"--max_target_length\", str(MAX_TARGET_LEN)\n",
+    "\n",
+    "        , \"--do_train\"\n",
+    "        , \"--train_batch_size\", str(BATCH_SIZE_TRAIN)\n",
+    "        , \"--train_filename\", os.path.join(dataset_path, LANG, \"train-mini.jsonl\")\n",
+    "\n",
+    "        , \"--do_eval\"\n",
+    "        , \"--eval_batch_size\", str(BATCH_SIZE_EVAL)\n",
+    "        , \"--dev_filename\", os.path.join(dataset_path, LANG, \"valid-mini.jsonl\")\n",
+    "    ]\n",
+    ")\n",
+    "\n",
+    "os.chdir(root_path)"
+   ]
+  }
+ ],
+ "metadata": {
+  "interpreter": {
+   "hash": "1bd664d798eaef90b759c461f8ddc88e16fa212736979b86e27c0afa80cea1c1"
+  },
+  "kernelspec": {
+   "display_name": "Python 3.8.13",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.8.13"
+  },
+  "orig_nbformat": 4
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
