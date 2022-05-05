@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 class Utils:
     @staticmethod
     def multiline_plot(fig_size, title, x_axis_label, xs, y_axis_label, y_legends, yss):
-        fig = plt.figure(figsize = fig_size)
+        fig = plt.figure(figsize=fig_size, dpi=420)
 
         for i, ys in enumerate(yss):
             ax = sns.lineplot(label=y_legends[i], x=xs, y=ys)

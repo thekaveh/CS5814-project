@@ -180,9 +180,16 @@ def main():
     parser.add_argument("--dev_filename", default=None, type=str, 
                         help="The dev filename. Should contain the .jsonl files for this task.")
     parser.add_argument("--test_filename", default=None, type=str, 
-                        help="The test filename. Should contain the .jsonl files for this task.")  
-    parser.add_argument("--train_loss_csv_filename", default=None, type=str, 
-                        help="The train loss csv filename.")                    
+                        help="The test filename. Should contain the .jsonl files for this task.")
+    
+    parser.add_argument("--train_losses_csv_filename", default=None, type=str, 
+                        help="The train losses csv filename.")
+    parser.add_argument("--eval_losses_csv_filename", default=None, type=str, 
+                        help="The eval losses csv filename.")
+    parser.add_argument("--bleu_scores_csv_filename", default=None, type=str, 
+                        help="The bleu scores csv filename.")
+    parser.add_argument("--bleu_score_test_txt_filename", default=None, type=str, 
+                        help="The bleu score test txt filename.")                  
     
     parser.add_argument("--config_name", default="", type=str,
                         help="Pretrained config name or path if not the same as model_name")
@@ -327,7 +334,7 @@ def main():
         model.train()
         dev_dataset={}
         idx_train_iter = 0
-        train_losses = []
+        train_losses, eval_losses, bleu_scores = [], [], []
         nb_tr_examples, nb_tr_steps,tr_loss,global_step,best_bleu,best_loss = 0, 0,0,0,0,1e6 
         for idx_epoch in range(args.num_train_epochs):
             bar = tqdm(train_dataloader,total=len(train_dataloader))
@@ -348,9 +355,8 @@ def main():
                 train_losses.append(
                     IterationDataPoint(
                         epoch_idx=idx_epoch
-                        , mini_batch_idx=idx_mb
                         , iter_idx=idx_train_iter
-                        , loss=train_loss
+                        , metric=train_loss
                     ).data
                 )
 
@@ -367,135 +373,172 @@ def main():
 
                 idx_train_iter += 1
 
-            # if args.do_eval:
-            #     #Eval model with dev dataset
-            #     tr_loss = 0
-            #     nb_tr_examples, nb_tr_steps = 0, 0                     
-            #     eval_flag=False    
-            #     if 'dev_loss' in dev_dataset:
-            #         eval_examples,eval_data=dev_dataset['dev_loss']
-            #     else:
-            #         eval_examples = read_examples(args.dev_filename)
-            #         eval_features = convert_examples_to_features(eval_examples, tokenizer, args,stage='dev')
-            #         all_source_ids = torch.tensor([f.source_ids for f in eval_features], dtype=torch.long)
-            #         all_source_mask = torch.tensor([f.source_mask for f in eval_features], dtype=torch.long)
-            #         all_target_ids = torch.tensor([f.target_ids for f in eval_features], dtype=torch.long)
-            #         all_target_mask = torch.tensor([f.target_mask for f in eval_features], dtype=torch.long)      
-            #         eval_data = TensorDataset(all_source_ids,all_source_mask,all_target_ids,all_target_mask)   
-            #         dev_dataset['dev_loss']=eval_examples,eval_data
-            #     eval_sampler = SequentialSampler(eval_data)
-            #     eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
+            if args.do_eval:
+                #Eval model with dev dataset
+                tr_loss = 0
+                nb_tr_examples, nb_tr_steps = 0, 0                     
+                eval_flag=False    
+                if 'dev_loss' in dev_dataset:
+                    eval_examples,eval_data=dev_dataset['dev_loss']
+                else:
+                    eval_examples = read_examples(args.dev_filename)
+                    eval_features = convert_examples_to_features(eval_examples, tokenizer, args,stage='dev')
+                    all_source_ids = torch.tensor([f.source_ids for f in eval_features], dtype=torch.long)
+                    all_source_mask = torch.tensor([f.source_mask for f in eval_features], dtype=torch.long)
+                    all_target_ids = torch.tensor([f.target_ids for f in eval_features], dtype=torch.long)
+                    all_target_mask = torch.tensor([f.target_mask for f in eval_features], dtype=torch.long)      
+                    eval_data = TensorDataset(all_source_ids,all_source_mask,all_target_ids,all_target_mask)   
+                    dev_dataset['dev_loss']=eval_examples,eval_data
+                eval_sampler = SequentialSampler(eval_data)
+                eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
 
-            #     logger.info("\n***** Running evaluation *****")
-            #     logger.info("  Num examples = %d", len(eval_examples))
-            #     logger.info("  Batch size = %d", args.eval_batch_size)
+                logger.info("\n***** Running evaluation *****")
+                logger.info("  Num examples = %d", len(eval_examples))
+                logger.info("  Batch size = %d", args.eval_batch_size)
 
-            #     #Start Evaling model
-            #     model.eval()
-            #     eval_loss,tokens_num = 0,0
-            #     for batch in eval_dataloader:
-            #         batch = tuple(t.to(device) for t in batch)
-            #         source_ids,source_mask,target_ids,target_mask = batch                  
+                #Start Evaling model
+                model.eval()
+                eval_loss,tokens_num = 0,0
+                for batch in eval_dataloader:
+                    batch = tuple(t.to(device) for t in batch)
+                    source_ids,source_mask,target_ids,target_mask = batch                  
 
-            #         with torch.no_grad():
-            #             _,loss,num = model(source_ids=source_ids,source_mask=source_mask,
-            #                                target_ids=target_ids,target_mask=target_mask)     
-            #         eval_loss += loss.sum().item()
-            #         tokens_num += num.sum().item()
-            #     #Pring loss of dev dataset    
-            #     model.train()
-            #     eval_loss = eval_loss / tokens_num
-            #     result = {'eval_ppl': round(np.exp(eval_loss),5),
-            #               'global_step': global_step+1,
-            #               'train_loss': round(train_loss,5)}
-            #     for key in sorted(result.keys()):
-            #         logger.info("  %s = %s", key, str(result[key]))
-            #     logger.info("  "+"*"*20)   
+                    with torch.no_grad():
+                        _,loss,num = model(source_ids=source_ids,source_mask=source_mask,
+                                           target_ids=target_ids,target_mask=target_mask)     
+                    eval_loss += loss.sum().item()
+                    tokens_num += num.sum().item()
+                #Print loss of dev dataset    
+                model.train()
+                eval_loss = eval_loss / tokens_num
+                result = {'eval_ppl': round(np.exp(eval_loss),5),
+                          'global_step': global_step+1,
+                          'train_loss': round(train_loss,5)}
+                for key in sorted(result.keys()):
+                    logger.info("  %s = %s", key, str(result[key]))
+                logger.info("  "+"*"*20)
 
-            #     #save last checkpoint
-            #     last_output_dir = os.path.join(args.output_dir, 'checkpoint-last')
-            #     if not os.path.exists(last_output_dir):
-            #         os.makedirs(last_output_dir)
-            #     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-            #     output_model_file = os.path.join(last_output_dir, "pytorch_model.bin")
-            #     torch.save(model_to_save.state_dict(), output_model_file)                    
-            #     if eval_loss<best_loss:
-            #         logger.info("  Best ppl:%s",round(np.exp(eval_loss),5))
-            #         logger.info("  "+"*"*20)
-            #         best_loss=eval_loss
-            #         # Save best checkpoint for best ppl
-            #         output_dir = os.path.join(args.output_dir, 'checkpoint-best-ppl')
-            #         if not os.path.exists(output_dir):
-            #             os.makedirs(output_dir)
-            #         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-            #         output_model_file = os.path.join(output_dir, "pytorch_model.bin")
-            #         torch.save(model_to_save.state_dict(), output_model_file)  
+                eval_losses.append(
+                    IterationDataPoint(
+                        metric=eval_loss
+                        , epoch_idx=idx_epoch
+                        , iter_idx=idx_train_iter
+                    ).data
+                ) 
 
-
-            #     #Calculate bleu  
-            #     if 'dev_bleu' in dev_dataset:
-            #         eval_examples,eval_data=dev_dataset['dev_bleu']
-            #     else:
-            #         eval_examples = read_examples(args.dev_filename)
-            #         eval_examples = random.sample(eval_examples,min(1000,len(eval_examples)))
-            #         eval_features = convert_examples_to_features(eval_examples, tokenizer, args,stage='test')
-            #         all_source_ids = torch.tensor([f.source_ids for f in eval_features], dtype=torch.long)
-            #         all_source_mask = torch.tensor([f.source_mask for f in eval_features], dtype=torch.long)    
-            #         eval_data = TensorDataset(all_source_ids,all_source_mask)   
-            #         dev_dataset['dev_bleu']=eval_examples,eval_data
+                #save last checkpoint
+                last_output_dir = os.path.join(args.output_dir, 'checkpoint-last')
+                if not os.path.exists(last_output_dir):
+                    os.makedirs(last_output_dir)
+                model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                output_model_file = os.path.join(last_output_dir, "pytorch_model.bin")
+                torch.save(model_to_save.state_dict(), output_model_file)                    
+                if eval_loss<best_loss:
+                    logger.info("  Best ppl:%s",round(np.exp(eval_loss),5))
+                    logger.info("  "+"*"*20)
+                    best_loss=eval_loss
+                    # Save best checkpoint for best ppl
+                    output_dir = os.path.join(args.output_dir, 'checkpoint-best-ppl')
+                    if not os.path.exists(output_dir):
+                        os.makedirs(output_dir)
+                    model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                    output_model_file = os.path.join(output_dir, "pytorch_model.bin")
+                    torch.save(model_to_save.state_dict(), output_model_file)  
 
 
+                #Calculate bleu  
+                if 'dev_bleu' in dev_dataset:
+                    eval_examples,eval_data=dev_dataset['dev_bleu']
+                else:
+                    eval_examples = read_examples(args.dev_filename)
+                    eval_examples = random.sample(eval_examples,min(1000,len(eval_examples)))
+                    eval_features = convert_examples_to_features(eval_examples, tokenizer, args,stage='test')
+                    all_source_ids = torch.tensor([f.source_ids for f in eval_features], dtype=torch.long)
+                    all_source_mask = torch.tensor([f.source_mask for f in eval_features], dtype=torch.long)    
+                    eval_data = TensorDataset(all_source_ids,all_source_mask)   
+                    dev_dataset['dev_bleu']=eval_examples,eval_data
 
-            #     eval_sampler = SequentialSampler(eval_data)
-            #     eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
 
-            #     model.eval() 
-            #     p=[]
-            #     for batch in eval_dataloader:
-            #         batch = tuple(t.to(device) for t in batch)
-            #         source_ids,source_mask= batch                  
-            #         with torch.no_grad():
-            #             preds = model(source_ids=source_ids,source_mask=source_mask)  
-            #             for pred in preds:
-            #                 t=pred[0].cpu().numpy()
-            #                 t=list(t)
-            #                 if 0 in t:
-            #                     t=t[:t.index(0)]
-            #                 text = tokenizer.decode(t,clean_up_tokenization_spaces=False)
-            #                 p.append(text)
-            #     model.train()
-            #     predictions=[]
-            #     with open(os.path.join(args.output_dir,"dev.output"),'w') as f, open(os.path.join(args.output_dir,"dev.gold"),'w') as f1:
-            #         for ref,gold in zip(p,eval_examples):
-            #             predictions.append(str(gold.idx)+'\t'+ref)
-            #             f.write(str(gold.idx)+'\t'+ref+'\n')
-            #             f1.write(str(gold.idx)+'\t'+gold.target+'\n')     
 
-            #     (goldMap, predictionMap) = bleu.computeMaps(predictions, os.path.join(args.output_dir, "dev.gold")) 
-            #     dev_bleu=round(bleu.bleuFromMaps(goldMap, predictionMap)[0],2)
-            #     logger.info("  %s = %s "%("bleu-4",str(dev_bleu)))
-            #     logger.info("  "+"*"*20)    
-            #     if dev_bleu>best_bleu:
-            #         logger.info("  Best bleu:%s",dev_bleu)
-            #         logger.info("  "+"*"*20)
-            #         best_bleu=dev_bleu
-            #         # Save best checkpoint for best bleu
-            #         output_dir = os.path.join(args.output_dir, 'checkpoint-best-bleu')
-            #         if not os.path.exists(output_dir):
-            #             os.makedirs(output_dir)
-            #         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-            #         output_model_file = os.path.join(output_dir, "pytorch_model.bin")
-            #         torch.save(model_to_save.state_dict(), output_model_file)
+                eval_sampler = SequentialSampler(eval_data)
+                eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
+
+                model.eval() 
+                p=[]
+                for batch in eval_dataloader:
+                    batch = tuple(t.to(device) for t in batch)
+                    source_ids,source_mask= batch                  
+                    with torch.no_grad():
+                        preds = model(source_ids=source_ids,source_mask=source_mask)  
+                        for pred in preds:
+                            t=pred[0].cpu().numpy()
+                            t=list(t)
+                            if 0 in t:
+                                t=t[:t.index(0)]
+                            text = tokenizer.decode(t,clean_up_tokenization_spaces=False)
+                            p.append(text)
+                model.train()
+                predictions=[]
+                with open(os.path.join(args.output_dir,"dev.output"),'w') as f, open(os.path.join(args.output_dir,"dev.gold"),'w') as f1:
+                    for ref,gold in zip(p,eval_examples):
+                        predictions.append(str(gold.idx)+'\t'+ref)
+                        f.write(str(gold.idx)+'\t'+ref+'\n')
+                        f1.write(str(gold.idx)+'\t'+gold.target+'\n')     
+
+                (goldMap, predictionMap) = bleu.computeMaps(predictions, os.path.join(args.output_dir, "dev.gold")) 
+                dev_bleu=round(bleu.bleuFromMaps(goldMap, predictionMap)[0],2)
+                logger.info("  %s = %s "%("bleu-4",str(dev_bleu)))
+                logger.info("  "+"*"*20)    
+
+                bleu_scores.append(
+                    IterationDataPoint(
+                        metric=dev_bleu
+                        , epoch_idx=idx_epoch
+                        , iter_idx=idx_train_iter
+                    ).data
+                )
+
+                if dev_bleu>best_bleu:
+                    logger.info("  Best bleu:%s",dev_bleu)
+                    logger.info("  "+"*"*20)
+                    best_bleu=dev_bleu
+                    # Save best checkpoint for best bleu
+                    output_dir = os.path.join(args.output_dir, 'checkpoint-best-bleu')
+                    if not os.path.exists(output_dir):
+                        os.makedirs(output_dir)
+                    model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                    output_model_file = os.path.join(output_dir, "pytorch_model.bin")
+                    torch.save(model_to_save.state_dict(), output_model_file)
 
         pd.DataFrame \
-        .from_records(train_losses) \
-        .to_csv(
-            args.train_loss_csv_filename
-            , index=False
-            , header=True
-            , quoting=csv.QUOTE_NONNUMERIC
-            , columns=IterationDataPoint.COL_NAMES
-        )
+            .from_records(train_losses) \
+            .to_csv(
+                args.train_losses_csv_filename
+                , index=False
+                , header=True
+                , quoting=csv.QUOTE_NONNUMERIC
+                , columns=IterationDataPoint.COL_NAMES
+            )
+
+        pd.DataFrame \
+            .from_records(eval_losses) \
+            .to_csv(
+                args.eval_losses_csv_filename
+                , index=False
+                , header=True
+                , quoting=csv.QUOTE_NONNUMERIC
+                , columns=IterationDataPoint.COL_NAMES
+            )
+
+        pd.DataFrame \
+            .from_records(bleu_scores) \
+            .to_csv(
+                args.bleu_scores_csv_filename
+                , index=False
+                , header=True
+                , quoting=csv.QUOTE_NONNUMERIC
+                , columns=IterationDataPoint.COL_NAMES
+            )
                
     if args.do_test:
         files=[]
@@ -541,6 +584,9 @@ def main():
             dev_bleu=round(bleu.bleuFromMaps(goldMap, predictionMap)[0],2)
             logger.info("  %s = %s "%("bleu-4",str(dev_bleu)))
             logger.info("  "+"*"*20)
-         
+
+            with open(os.path.join(args.output_dir, args.bleu_score_test_txt_filename), 'w') as bleu_score_test_file:
+                bleu_score_test_file.write(dev_bleu)
+
 if __name__ == "__main__":
     main()
