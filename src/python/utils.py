@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 class Utils:
     @staticmethod
-    def multiline_plot(fig_size, title, x_axis_label, xs, y_axis_label, y_legends, yss):
+    def multiline_plot(fig_size, title, x_axis_label, xs, y_axis_label, y_legends, yss, xticks_step=1):
         fig = plt.figure(figsize=fig_size, dpi=420)
 
         for i, ys in enumerate(yss):
@@ -14,7 +14,7 @@ class Utils:
         ax.set_title(title, fontsize=14)
         ax.set_ylabel(y_axis_label, fontsize=14)
         ax.set_xlabel(x_axis_label, fontsize=14)
-        ax.set_xticks(range(0, len(xs), len(xs) // 25))
+        ax.set_xticks(range(0, len(xs), xticks_step))
 
         plt.legend(fontsize='x-large')
         plt.tight_layout() 
