@@ -586,7 +586,7 @@ def main():
             logger.info("  "+"*"*20)
 
             with open(os.path.join(args.output_dir, args.bleu_score_test_txt_filename), 'w') as bleu_score_test_file:
-                bleu_score_test_file.write(dev_bleu)
+                bleu_score_test_file.write(str(dev_bleu))
 
 if __name__ == "__main__":
     main()
