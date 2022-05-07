@@ -41,10 +41,14 @@ from tqdm import tqdm, trange
 from iteration_data_point import IterationDataPoint
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler,TensorDataset
-from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
-                          RobertaConfig, RobertaModel, RobertaTokenizer)
+from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup
+                          , RobertaConfig, RobertaModel, RobertaTokenizer
+                          , T5ForConditionalGeneration, T5Config)
 
-MODEL_CLASSES = {'roberta': (RobertaConfig, RobertaModel, RobertaTokenizer)}
+MODEL_CLASSES = {
+    'roberta': (RobertaConfig, RobertaModel, RobertaTokenizer)
+    , 't5': (T5Config, T5ForConditionalGeneration, RobertaTokenizer)
+}
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
